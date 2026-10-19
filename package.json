@@ -1,0 +1,21 @@
+{
+  "name": "applypilot-ai",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "dev": "npm run build --workspace @applypilot/shared && concurrently -k -n api,web -c blue,green \"npm --workspace @applypilot/api run dev\" \"npm --workspace @applypilot/web run dev\"",
+    "dev:api": "npm run build --workspace @applypilot/shared && npm --workspace @applypilot/api run dev",
+    "dev:web": "npm run build --workspace @applypilot/shared && npm --workspace @applypilot/web run dev",
+    "db:migrate": "npm --workspace @applypilot/api run db:migrate --",
+    "db:deploy": "npm --workspace @applypilot/api run db:deploy",
+    "db:validate": "npm --workspace @applypilot/api run db:validate",
+    "build": "npm run build --workspace @applypilot/shared && npm run build --workspace @applypilot/api && npm run build --workspace @applypilot/web",
+    "typecheck": "npm run build --workspace @applypilot/shared && npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "typescript": "^5.9.3"
+  }
+}

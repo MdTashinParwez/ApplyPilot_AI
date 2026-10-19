@@ -1,0 +1,19 @@
+{
+  "name": "@applypilot/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npm run generate && tsx watch src/index.ts",
+    "build": "npm run generate && tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "typecheck": "npm run generate && tsc -p tsconfig.json --noEmit",
+    "test": "tsx --test src/app.test.ts",
+    "generate": "prisma generate --config prisma7.config.ts",
+    "db:validate": "prisma validate --config prisma7.config.ts",
+    "db:migrate": "prisma migrate dev --config prisma7.config.ts",
+    "db:deploy": "prisma migrate deploy --config prisma7.config.ts"
+  },
+  "dependencies": { "@applypilot/shared": "*", "@prisma/adapter-pg": "7.10.1", "@prisma/client": "7.10.1", "cors": "^2.8.5", "dotenv": "^16.6.1", "express": "^5.1.0", "pg": "^8.16.3", "zod": "^4.1.12" },
+  "devDependencies": { "@types/cors": "^2.8.19", "@types/express": "^5.0.3", "@types/node": "^24.7.2", "@types/pg": "^8.15.5", "@types/supertest": "^6.0.3", "prisma": "7.10.1", "supertest": "^7.1.4", "tsx": "^4.20.6", "typescript": "^5.9.3" }
+}
