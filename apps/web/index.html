@@ -6,6 +6,17 @@
     <meta name="theme-color" content="#f6f7f8" />
     <meta name="description" content="A calm, clear workspace for your job search." />
     <title>ApplyPilot AI — Your job search, in control</title>
+    <script>
+      (() => {
+        let preference = "system";
+        try {
+          const saved = localStorage.getItem("applypilot-theme");
+          if (saved === "light" || saved === "dark" || saved === "system") preference = saved;
+        } catch {}
+        const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+        document.documentElement.dataset.theme = preference === "system" ? (dark ? "dark" : "light") : preference;
+      })();
+    </script>
   </head>
   <body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body>
 </html>

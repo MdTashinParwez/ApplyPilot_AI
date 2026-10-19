@@ -3,6 +3,27 @@ import { applicationStatuses, createApplicationSchema, type ApplicationRecord } 
 
 const api = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
 const labels: Record<string, string> = { saved: "Saved", applied: "Applied", interview: "Interview", offer: "Offer", rejected: "Closed" };
+type ThemeMode = "light" | "dark" | "system";
+
+const themeOrder: ThemeMode[] = ["system", "light", "dark"];
+
+function getInitialTheme(): ThemeMode {
+  try {
+    const saved = localStorage.getItem("applypilot-theme");
+    if (saved === "light" || saved === "dark" || saved === "system") return saved;
+  } catch { /* Storage can be unavailable in restricted browser contexts. */ }
+  return "system";
+}
+
+function getSystemTheme(): "light" | "dark" {
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function ThemeIcon({ theme }: { theme: "light" | "dark" }) {
+  return theme === "light"
+    ? <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="3.7" /><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" /></svg>
+    : <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20.2 15.3A8.4 8.4 0 0 1 8.7 3.8a8.5 8.5 0 1 0 11.5 11.5Z" /></svg>;
+}
 
 export default function App() {
   const [applications, setApplications] = useState<ApplicationRecord[]>([]);
@@ -10,6 +31,24 @@ export default function App() {
   const [error, setError] = useState("");
   const [formOpen, setFormOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [theme, setTheme] = useState<ThemeMode>(getInitialTheme);
+  const [systemTheme, setSystemTheme] = useState<"light" | "dark">(getSystemTheme);
+
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const applyTheme = () => {
+      const activeTheme = theme === "system" ? (media.matches ? "dark" : "light") : theme;
+      document.documentElement.dataset.theme = activeTheme;
+      setSystemTheme(media.matches ? "dark" : "light");
+      const themeColor = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+      if (themeColor) themeColor.content = getComputedStyle(document.documentElement).getPropertyValue("--canvas").trim();
+    };
+    const updateSystemTheme = () => applyTheme();
+    applyTheme();
+    media.addEventListener("change", updateSystemTheme);
+    try { localStorage.setItem("applypilot-theme", theme); } catch { /* The active theme still works for this session. */ }
+    return () => media.removeEventListener("change", updateSystemTheme);
+  }, [theme]);
 
   async function load() {
     try {
@@ -37,9 +76,11 @@ export default function App() {
   }
 
   const counts = Object.fromEntries(applicationStatuses.map(status => [status, applications.filter(app => app.status === status).length]));
+  const nextTheme = themeOrder[(themeOrder.indexOf(theme) + 1) % themeOrder.length];
+  const iconTheme = theme === "system" ? systemTheme : theme;
   return <div className="layout">
     <aside className="sidebar"><a className="brand" href="#home"><span className="brand-mark">A</span><span>applypilot<span className="brand-ai"> AI</span></span></a><div className="side-label">WORKSPACE</div><a className="nav active" href="#applications"><span>▦</span> Applications <span className="nav-count">{applications.length}</span></a><a className="nav muted" href="#today"><span>◷</span> Today</a><div className="sidebar-bottom"><div className="profile"><div className="avatar">Y</div><div><strong>Your workspace</strong><small>Personal plan</small></div><span className="dots">···</span></div></div></aside>
-    <main className="main" id="home"><header className="topbar"><div className="crumb">Workspace <span>/</span> <strong>Applications</strong></div><div className="top-actions"><span className="today">Your search, at a glance</span><div className="avatar small">Y</div></div></header>
+    <main className="main" id="home"><header className="topbar"><div className="crumb">Workspace <span>/</span> <strong>Applications</strong></div><div className="top-actions"><span className="today">Your search, at a glance</span><button className="theme-toggle" type="button" aria-label={`Theme is ${theme}. Switch to ${nextTheme}.`} title={`Theme: ${theme} · switch to ${nextTheme}`} onClick={() => setTheme(nextTheme)}><ThemeIcon theme={iconTheme} /><span>{theme[0].toUpperCase() + theme.slice(1)}</span></button><div className="avatar small">Y</div></div></header>
       <section className="content" id="applications"><div className="eyebrow">YOUR JOB SEARCH</div><div className="heading-row"><div><h1>Applications</h1><p className="intro">Keep every opportunity moving forward.</p></div><button className="primary" onClick={() => setFormOpen(open => !open)}><span>＋</span> Add application</button></div>
       <div className="stats"><div className="stat"><span className="stat-icon lavender">▦</span><div><span className="stat-label">Total tracked</span><strong>{applications.length}</strong></div></div><div className="stat"><span className="stat-icon blue">↗</span><div><span className="stat-label">In progress</span><strong>{counts.applied + counts.interview}</strong></div></div><div className="stat"><span className="stat-icon amber">✳</span><div><span className="stat-label">Interviews</span><strong>{counts.interview}</strong></div></div><div className="stat"><span className="stat-icon green">⌁</span><div><span className="stat-label">Offers</span><strong>{counts.offer}</strong></div></div></div>
       {formOpen && <form className="application-form" onSubmit={submit}><div className="form-heading"><div><h2>New application</h2><p>Add an opportunity to your tracker.</p></div><button type="button" className="close" onClick={() => setFormOpen(false)} aria-label="Close">×</button></div><div className="form-grid"><label>Company *<input name="company" required maxLength={120} placeholder="e.g. Linear" /></label><label>Role *<input name="role" required maxLength={120} placeholder="e.g. Product Designer" /></label><label>Location<input name="location" maxLength={120} placeholder="e.g. Remote, US" /></label><label>Job URL<input name="jobUrl" type="url" placeholder="https://..." /></label><label>Status<select name="status" defaultValue="saved">{applicationStatuses.map(status => <option key={status} value={status}>{labels[status]}</option>)}</select></label><label className="wide">Notes<textarea name="notes" rows={2} maxLength={4000} placeholder="Anything you want to remember…" /></label></div><div className="form-footer"><button type="button" className="secondary" onClick={() => setFormOpen(false)}>Cancel</button><button className="primary" disabled={busy}>{busy ? "Saving…" : "Save application"}</button></div></form>}

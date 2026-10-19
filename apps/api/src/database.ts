@@ -14,7 +14,7 @@ function toRecord(application: Application): ApplicationRecord {
 
 export function createDatabase(connectionString = process.env.DATABASE_URL) {
   if (!connectionString) {
-    throw new Error("DATABASE_URL is required. Copy .env.example to .env and set DATABASE_URL.");
+    throw new Error("DATABASE_URL is required.");
   }
 
   const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
