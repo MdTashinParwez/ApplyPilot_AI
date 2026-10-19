@@ -14,7 +14,7 @@ export default function App() {
   async function load() {
     try {
       const response = await fetch(`${api}/api/applications`);
-      if (!response.ok) throw new Error("Could not load applications. Check that the API and MongoDB are running.");
+      if (!response.ok) throw new Error("Could not load applications. Check that the API and PostgreSQL are running.");
       setApplications(await response.json() as ApplicationRecord[]);
       setError("");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not connect to the API."); }
