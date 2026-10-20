@@ -1,0 +1,3 @@
+ALTER TABLE "applications"
+  ALTER COLUMN "company" TYPE VARCHAR(160),
+  ALTER COLUMN "role" TYPE VARCHAR(200);

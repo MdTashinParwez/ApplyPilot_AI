@@ -17,15 +17,60 @@ enum ApplicationStatus {
 
 model Application {
   id        String            @id @default(cuid())
-  company   String            @db.VarChar(120)
-  role      String            @db.VarChar(120)
+  company   String            @db.VarChar(160)
+  role      String            @db.VarChar(200)
   location  String            @default("") @db.VarChar(120)
   jobUrl    String            @default("")
   status    ApplicationStatus @default(saved)
   notes     String            @default("") @db.VarChar(4000)
   createdAt DateTime          @default(now())
   updatedAt DateTime          @updatedAt
+  savedJobs SavedJob[]
 
   @@index([createdAt])
   @@map("applications")
+}
+
+model SavedJob {
+  id            String       @id @default(cuid())
+  sourceId      String
+  source        String       @db.VarChar(40)
+  title         String       @db.VarChar(200)
+  company       String       @db.VarChar(160)
+  location      String       @default("") @db.VarChar(200)
+  jobUrl        String       @unique
+  description   String       @default("") @db.Text
+  remote        Boolean      @default(false)
+  publishedAt   DateTime?
+  tags          String[]     @default([])
+  jobTypes      String[]     @default([])
+  applicationId String?
+  application   Application? @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@unique([source, sourceId])
+  @@index([createdAt])
+  @@map("saved_jobs")
+}
+
+model CandidateProfile {
+  id                  String   @id @default("local") @db.VarChar(20)
+  fullName            String   @default("") @db.VarChar(160)
+  professionalSummary String   @default("") @db.VarChar(4000)
+  skills              String[] @default([])
+  education           Json     @default("[]")
+  experience          Json     @default("[]")
+  projects            Json     @default("[]")
+  targetJobTitles     String[] @default([])
+  preferredCountries  String[] @default([])
+  preferredLocations  String[] @default([])
+  workArrangements    String[] @default([])
+  minimumSalary       Int?
+  workAuthorization   String   @default("") @db.VarChar(2000)
+  resumeText          String   @default("") @db.Text
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@map("candidate_profiles")
 }
