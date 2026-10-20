@@ -3,7 +3,25 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "scripts": { "dev": "vite --host 0.0.0.0", "build": "tsc -b && vite build", "typecheck": "tsc -b --pretty false" },
-  "dependencies": { "@applypilot/shared": "*", "@vitejs/plugin-react": "^5.0.4", "react": "^19.1.1", "react-dom": "^19.1.1", "vite": "^7.1.9", "zod": "^4.1.12" },
-  "devDependencies": { "@types/react": "^19.1.16", "@types/react-dom": "^19.1.9", "typescript": "^5.9.3" }
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc -b && vite build",
+    "test": "node --experimental-strip-types --test src/profileForm.test.ts",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "dependencies": {
+    "@applypilot/shared": "*",
+    "@vitejs/plugin-react": "^5.0.4",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "vite": "^7.1.9",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/react": "^19.1.16",
+    "@types/react-dom": "^19.1.9",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.3"
+  }
 }
