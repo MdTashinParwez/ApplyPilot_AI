@@ -4,6 +4,7 @@ import Icon from "./Icon.js";
 import JobsPage from "./JobsPage.js";
 import WorkspaceNav from "./WorkspaceNav.js";
 import CandidateProfilePage from "./CandidateProfilePage.js";
+import JobRecommendationsPage from "./JobRecommendationsPage.js";
 
 const api = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
 const labels: Record<string, string> = { saved: "Saved", applied: "Applied", interview: "Interview", offer: "Offer", rejected: "Closed" };
@@ -36,7 +37,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(getInitialTheme);
   const [systemTheme, setSystemTheme] = useState<"light" | "dark">(getSystemTheme);
-  const [page, setPage] = useState<"applications" | "discover" | "saved" | "profile">("applications");
+  const [page, setPage] = useState<"applications" | "discover" | "saved" | "recommendations" | "profile">("applications");
 
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
@@ -96,7 +97,7 @@ export default function App() {
     </aside>
     <main className="main" id="home">
       <header className="topbar">
-        <div className="crumb">Workspace <span>/</span> <strong>{page === "applications" ? "Applications" : page === "discover" ? "Discover jobs" : page === "saved" ? "Saved jobs" : "Candidate profile"}</strong></div>
+        <div className="crumb">Workspace <span>/</span> <strong>{page === "applications" ? "Applications" : page === "discover" ? "Discover jobs" : page === "saved" ? "Saved jobs" : page === "recommendations" ? "Recommendations" : "Candidate profile"}</strong></div>
         <div className="top-actions"><span className="today">Your search, at a glance</span><button className="theme-toggle" type="button" aria-label={`Theme is ${theme}. Switch to ${nextTheme}.`} title={`Theme: ${theme}. Switch to ${nextTheme}.`} onClick={() => setTheme(nextTheme)}><ThemeIcon theme={iconTheme} /><span>{theme[0].toUpperCase() + theme.slice(1)}</span></button><div className="avatar small">Y</div></div>
       </header>
       <section className="content" id="applications" hidden={page !== "applications"}>
@@ -121,6 +122,7 @@ export default function App() {
         <footer className="footer"><span>One step at a time. You have got this.</span><span>ApplyPilot AI <b>|</b> Made for the next move</span></footer>
       </section>
       {(page === "discover" || page === "saved") && <JobsPage view={page} onMoved={() => void load()} />}
+      {page === "recommendations" && <JobRecommendationsPage onOpenProfile={() => setPage("profile")} />}
       {page === "profile" && <CandidateProfilePage />}
     </main>
   </div>;

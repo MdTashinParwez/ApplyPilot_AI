@@ -1,11 +1,12 @@
 import Icon, { type IconName } from "./Icon.js";
 
-type WorkspacePage = "applications" | "discover" | "saved" | "profile";
+type WorkspacePage = "applications" | "discover" | "saved" | "recommendations" | "profile";
 
 const links: { id: WorkspacePage; label: string; icon: IconName }[] = [
   { id: "applications", label: "Applications", icon: "grid" },
   { id: "discover", label: "Discover jobs", icon: "search" },
   { id: "saved", label: "Saved jobs", icon: "bookmark" },
+  { id: "recommendations", label: "Recommendations", icon: "sparkles" },
   { id: "profile", label: "Candidate profile", icon: "briefcase" }
 ];
 

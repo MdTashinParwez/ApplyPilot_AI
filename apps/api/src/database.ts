@@ -15,8 +15,8 @@ function toRecord(application: Application): ApplicationRecord {
 
 function toSavedJob(job: PrismaSavedJob): SavedJob {
   return {
-    id: job.id, sourceId: job.sourceId, source: "arbeitnow", title: job.title, company: job.company,
-    location: job.location, url: job.jobUrl, description: job.description, remote: job.remote,
+    id: job.id, sourceId: job.sourceId, source: job.source as SavedJob["source"], sourceAttribution: ({ arbeitnow: "Arbeitnow", remotive: "Remotive", remote_ok: "Remote OK", greenhouse: "Greenhouse", lever: "Lever" } as Record<string, string>)[job.source] ?? job.source, title: job.title, company: job.company,
+    location: job.location, country: null, workArrangement: job.remote ? "remote" : null, url: job.jobUrl, description: job.description, remote: job.remote,
     publishedAt: job.publishedAt?.toISOString() ?? null, tags: job.tags, jobTypes: job.jobTypes,
     applicationId: job.applicationId, createdAt: job.createdAt.toISOString(), updatedAt: job.updatedAt.toISOString()
   };
@@ -78,7 +78,7 @@ export function createDatabase(connectionString = process.env.DATABASE_URL) {
     async saveJob(data: Job) {
       const createData = {
         sourceId: data.sourceId, source: data.source, title: data.title, company: data.company,
-        location: data.location, jobUrl: data.url, description: data.description, remote: data.remote,
+        location: data.location, jobUrl: data.url, description: data.description, remote: data.remote ?? false,
         publishedAt: data.publishedAt ? new Date(data.publishedAt) : null, tags: data.tags, jobTypes: data.jobTypes
       };
       try { return { job: toSavedJob(await prisma.savedJob.create({ data: createData })), duplicate: false }; }

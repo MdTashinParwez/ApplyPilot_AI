@@ -8,9 +8,11 @@ import { randomUUID } from "node:crypto";
 import { ZodError } from "zod";
 import { candidateProfileSchema, createApplicationSchema, jobSearchSchema, saveJobSchema, type ApplicationRecord, type CandidateProfileInput } from "@applypilot/shared";
 import type { ApplicationRepository } from "./repository.js";
-import { createArbeitnowSource, JobSourceError, type JobSource } from "./jobs/arbeitnow.js";
+import { JobSourceError, type JobSource } from "./jobs/arbeitnow.js";
+import { createJobSourceRegistry } from "./jobs/publicSources.js";
 import { extractResumeText, ResumeParseError } from "./resume/extract.js";
 import { parseResume } from "./resume/parse.js";
+import { AIServiceError, analyzeJobs, type AnalysisProfile, type JobAnalysisResult } from "./aiServiceClient.js";
 
 const configuredResumeLimit = Number(process.env.RESUME_MAX_SIZE_MB ?? 5);
 const resumeLimit = (Number.isFinite(configuredResumeLimit) ? Math.max(1, configuredResumeLimit) : 5) * 1024 * 1024;
@@ -36,7 +38,13 @@ function serialize(record: ApplicationRecord) {
   return { ...record, createdAt: new Date(record.createdAt).toISOString(), updatedAt: new Date(record.updatedAt).toISOString() };
 }
 
-export function createApp(repository: ApplicationRepository, jobSource: JobSource = createArbeitnowSource()) {
+export type JobAnalyzer = (profile: AnalysisProfile, jobs: import("@applypilot/shared").Job[]) => Promise<JobAnalysisResult[]>;
+
+function hasEvaluationProfile(profile: CandidateProfileInput): boolean {
+  return Boolean(profile.skills.length || profile.targetJobTitles.length || profile.preferredCountries.length || profile.preferredLocations.length || profile.workArrangements.length || profile.professionalSummary.trim() || profile.experience.some(item => item.title || item.company || item.details));
+}
+
+export function createApp(repository: ApplicationRepository, jobSource: JobSource = createJobSourceRegistry(), jobAnalyzer: JobAnalyzer = analyzeJobs) {
   const app = express();
   app.use(cors({ origin: process.env.WEB_ORIGIN ?? "http://localhost:5173" }));
   app.use(express.json({ limit: "512kb" }));
@@ -71,6 +79,37 @@ export function createApp(repository: ApplicationRepository, jobSource: JobSourc
     } catch (error) { next(new DatabaseUnavailableError(error)); }
   });
 
+  app.get("/api/job-recommendations", async (_req, res, next) => {
+    try {
+      const savedProfile = await repository.getProfile();
+      const profile = candidateProfileSchema.parse(savedProfile ?? {});
+      if (!hasEvaluationProfile(profile)) {
+        res.json({ status: "profile_incomplete", message: "Complete your candidate profile with skills, experience, or target roles to get useful job recommendations.", evaluatedCount: 0, availableCount: 0, hasMore: false, recommendations: [], sources: [], coverageLimitations: [] });
+        return;
+      }
+      const search = await jobSource.search(jobSearchSchema.parse({ page: 1, pageSize: 15 }));
+      if (!search.jobs.length) {
+        res.json({ status: "ready", evaluatedCount: 0, availableCount: search.total, hasMore: search.hasNextPage, recommendations: [], sources: search.sources ?? [], coverageLimitations: search.coverageLimitations ?? [] });
+        return;
+      }
+      const aiProfile: AnalysisProfile = {
+        skills: profile.skills,
+        professionalSummary: profile.professionalSummary,
+        targetJobTitles: profile.targetJobTitles,
+        preferredCountries: profile.preferredCountries,
+        preferredLocations: profile.preferredLocations,
+        workArrangements: profile.workArrangements,
+        workAuthorization: profile.workAuthorization,
+        experience: profile.experience.map(({ title, company, details }) => ({ title, company, details }))
+      };
+      const recommendations = await jobAnalyzer(aiProfile, search.jobs);
+      res.json({ status: "ready", evaluatedCount: recommendations.length, availableCount: search.total, hasMore: search.hasNextPage, recommendations, sources: search.sources ?? [], coverageLimitations: search.coverageLimitations ?? [] });
+    } catch (error) {
+      if (error instanceof ZodError || error instanceof JobSourceError || error instanceof AIServiceError) { next(error); return; }
+      next(new DatabaseUnavailableError(error));
+    }
+  });
+
   app.put("/api/profile", async (req, res, next) => {
     try {
       const input: CandidateProfileInput = candidateProfileSchema.parse(req.body);
@@ -102,7 +141,22 @@ export function createApp(repository: ApplicationRepository, jobSource: JobSourc
   app.get("/api/jobs", async (req, res, next) => {
     try {
       const query = jobSearchSchema.parse(req.query);
-      res.json(await jobSource.search(query));
+      const result = await jobSource.search(query);
+      if (!query.includeMatches) { res.json(result); return; }
+      const profile = candidateProfileSchema.parse(await repository.getProfile() ?? {});
+      if (!hasEvaluationProfile(profile) || !result.jobs.length) { res.json({ ...result, matchScores: {}, evaluatorStatus: "profile_incomplete" }); return; }
+      const aiProfile: AnalysisProfile = {
+        skills: profile.skills, professionalSummary: profile.professionalSummary, targetJobTitles: profile.targetJobTitles,
+        preferredCountries: profile.preferredCountries, preferredLocations: profile.preferredLocations, workArrangements: profile.workArrangements, workAuthorization: profile.workAuthorization,
+        experience: profile.experience.map(({ title, company, details }) => ({ title, company, details }))
+      };
+      try {
+        const analyses = await jobAnalyzer(aiProfile, result.jobs);
+        res.json({ ...result, matchScores: Object.fromEntries(analyses.map(item => [`${item.source}:${item.sourceId}`, { score: item.score, recommendation: item.recommendation, confidence: item.confidence }])), evaluatorStatus: "ready" });
+      } catch (error) {
+        if (!(error instanceof AIServiceError)) throw error;
+        res.json({ ...result, matchScores: {}, evaluatorStatus: "unavailable", evaluatorMessage: "AI matching is temporarily unavailable; listings are still shown." });
+      }
     } catch (error) { next(error instanceof ZodError || error instanceof JobSourceError ? error : new DatabaseUnavailableError(error)); }
   });
 
@@ -159,6 +213,11 @@ export function createApp(repository: ApplicationRepository, jobSource: JobSourc
     if (error instanceof JobSourceError) {
       const status = error.kind === "timeout" ? 504 : error.kind === "rate_limited" ? 503 : 502;
       res.status(status).json({ error: { code: `JOB_SOURCE_${error.kind.toUpperCase()}`, message: error.message } });
+      return;
+    }
+    if (error instanceof AIServiceError) {
+      const status = error.kind === "timeout" ? 504 : 503;
+      res.status(status).json({ error: { code: `AI_SERVICE_${error.kind.toUpperCase()}`, message: error.message } });
       return;
     }
     console.error("Unexpected API error; details omitted.");

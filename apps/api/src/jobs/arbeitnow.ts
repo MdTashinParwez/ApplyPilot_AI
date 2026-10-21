@@ -1,4 +1,5 @@
 import type { Job, JobSearchInput } from "@applypilot/shared";
+import { createHash } from "node:crypto";
 
 const ENDPOINT = "https://www.arbeitnow.com/api/job-board-api";
 const SOURCE_PAGES = 3;
@@ -26,24 +27,28 @@ function cleanDescription(value: unknown): string {
 }
 
 export function normalizeArbeitnowJob(raw: ArbeitnowRecord): Job | null {
-  if (typeof raw.slug !== "string" || typeof raw.title !== "string" || typeof raw.company_name !== "string" || typeof raw.url !== "string") return null;
+  if (typeof raw.title !== "string" || !raw.title.trim() || typeof raw.company_name !== "string" || !raw.company_name.trim() || typeof raw.url !== "string") return null;
   let url: URL;
   try { url = new URL(raw.url); } catch { return null; }
   if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+  url.hash = ""; for (const key of [...url.searchParams.keys()]) if (/^utm_/i.test(key)) url.searchParams.delete(key);
   const created = typeof raw.created_at === "number" ? raw.created_at * 1000 : typeof raw.created_at === "string" ? Date.parse(raw.created_at) : NaN;
   const publishedAt = Number.isFinite(created) ? new Date(created).toISOString() : null;
   return {
-    sourceId: raw.slug.slice(0, 200), source: "arbeitnow", title: raw.title.trim().slice(0, 200),
+    sourceId: (typeof raw.slug === "string" && raw.slug.trim() ? raw.slug.trim() : createHash("sha256").update(url.toString()).digest("hex")).slice(0, 200), source: "arbeitnow", sourceAttribution: "Arbeitnow", title: raw.title.trim().slice(0, 200),
     company: raw.company_name.trim().slice(0, 160), location: typeof raw.location === "string" ? raw.location.trim().slice(0, 200) : "",
-    url: url.toString(), description: cleanDescription(raw.description), remote: raw.remote === true,
+    country: null, workArrangement: raw.remote === true ? "remote" : null,
+    url: url.toString(), description: cleanDescription(raw.description), remote: typeof raw.remote === "boolean" ? raw.remote : null,
     publishedAt, tags: Array.isArray(raw.tags) ? raw.tags.filter((tag): tag is string => typeof tag === "string").slice(0, 30) : [],
     jobTypes: Array.isArray(raw.job_types) ? raw.job_types.filter((type): type is string => typeof type === "string").slice(0, 20) : []
   };
 }
 
-export interface JobSource { search(query: JobSearchInput): Promise<{ jobs: Job[]; total: number; page: number; pageSize: number; hasNextPage: boolean }>; }
+export interface JobSource { search(query: JobSearchInput): Promise<{ jobs: Job[]; total: number; page: number; pageSize: number; hasNextPage: boolean; sources?: SourceStatus[]; coverageLimitations?: string[] }>; }
+export interface SourceStatus { id: string; name: string; status: "available" | "disabled" | "error"; fetched: number; message?: string; limitations: string[]; }
+export interface JobAdapter { readonly id: string; readonly name: string; readonly attribution: string; readonly limitations: string[]; fetchJobs(): Promise<Job[]>; }
 
-export function createArbeitnowSource(fetcher: FetchLike = fetch, now: () => number = Date.now): JobSource {
+export function createArbeitnowSource(fetcher: FetchLike = fetch, now: () => number = Date.now): JobSource & JobAdapter {
   let cached: { expires: number; jobs: Job[] } | undefined;
   let pending: Promise<Job[]> | undefined;
 
@@ -76,16 +81,21 @@ export function createArbeitnowSource(fetcher: FetchLike = fetch, now: () => num
     return pending;
   }
 
-  return {
+  const source: JobSource & JobAdapter = {
+    id: "arbeitnow", name: "Arbeitnow", attribution: "Arbeitnow public job board API",
+    limitations: ["Country and location filters are applied locally to the bounded recent feed."],
+    async fetchJobs() { return loadJobs(); },
     async search(query) {
       const keyword = query.keyword.toLowerCase();
       const location = query.location.toLowerCase();
       const matching = (await loadJobs()).filter(job => {
         const text = [job.title, job.company, job.description, ...job.tags].join(" ").toLowerCase();
-        return (!keyword || text.includes(keyword)) && (!location || job.location.toLowerCase().includes(location)) && (!query.remoteOnly || job.remote);
+        const haystack = `${job.location} ${job.country ?? ""}`.toLowerCase();
+        return (!keyword || text.includes(keyword)) && (!location || haystack.includes(location)) && (!query.country || haystack.includes(query.country.toLowerCase())) && (!query.remoteOnly || job.remote);
       });
       const start = (query.page - 1) * query.pageSize;
       return { jobs: matching.slice(start, start + query.pageSize), total: matching.length, page: query.page, pageSize: query.pageSize, hasNextPage: start + query.pageSize < matching.length };
     }
   };
+  return source;
 }

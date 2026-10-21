@@ -21,20 +21,26 @@ export interface ApplicationRecord extends CreateApplicationInput {
 export const jobSearchSchema = z.object({
   keyword: z.string().trim().max(100).default(""),
   location: z.string().trim().max(100).default(""),
+  country: z.string().trim().max(100).default(""),
   remoteOnly: z.enum(["true", "false"]).default("false").transform(value => value === "true"),
+  sources: z.string().trim().max(300).default(""),
+  includeMatches: z.enum(["true", "false"]).default("false").transform(value => value === "true"),
   page: z.coerce.number().int().min(1).max(5).default(1),
   pageSize: z.coerce.number().int().min(1).max(25).default(12)
 });
 
 export const jobSchema = z.object({
   sourceId: z.string().min(1).max(200),
-  source: z.literal("arbeitnow"),
+  source: z.enum(["arbeitnow", "remotive", "remote_ok", "greenhouse", "lever"]),
+  sourceAttribution: z.string().max(200).default(""),
   title: z.string().trim().min(1).max(200),
   company: z.string().trim().min(1).max(160),
   location: z.string().trim().max(200).default(""),
+  country: z.string().trim().max(120).nullable().default(null),
+  workArrangement: z.enum(["remote", "hybrid", "onsite"]).nullable().default(null),
   url: z.url(),
   description: z.string().max(5000).default(""),
-  remote: z.boolean(),
+  remote: z.boolean().nullable().default(null),
   publishedAt: z.string().datetime().nullable(),
   tags: z.array(z.string().max(100)).max(30).default([]),
   jobTypes: z.array(z.string().max(100)).max(20).default([])

@@ -4,8 +4,9 @@ import request from "supertest";
 import { readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { candidateProfileSchema, jobSearchSchema, type ApplicationRecord, type CandidateProfileInput, type CandidateProfileRecord, type CreateApplicationInput, type Job, type SavedJob } from "@applypilot/shared";
+import { candidateProfileSchema, jobSearchSchema, type ApplicationRecord, type CandidateProfileInput, type CandidateProfileRecord, type CreateApplicationInput, type Job, type JobSearchInput, type SavedJob } from "@applypilot/shared";
 import { createApp } from "./app.js";
+import { AIServiceError, type JobAnalysisResult } from "./aiServiceClient.js";
 import type { ApplicationRepository } from "./repository.js";
 import { createArbeitnowSource, normalizeArbeitnowJob } from "./jobs/arbeitnow.js";
 
@@ -21,7 +22,7 @@ const record: ApplicationRecord = {
   createdAt: now.toISOString(),
   updatedAt: now.toISOString()
 };
-const job: Job = { sourceId: "sample", source: "arbeitnow", title: "Designer", company: "Linear", location: "Berlin", url: "https://jobs.example/1", description: "Design systems", remote: true, publishedAt: now.toISOString(), tags: ["design"], jobTypes: [] };
+const job: Job = { sourceId: "sample", source: "arbeitnow", sourceAttribution: "Arbeitnow", title: "Designer", company: "Linear", location: "Berlin", country: null, workArrangement: "remote", url: "https://jobs.example/1", description: "Design systems", remote: true, publishedAt: now.toISOString(), tags: ["design"], jobTypes: [] };
 const saved: SavedJob = { ...job, id: "saved_1", applicationId: null, createdAt: now.toISOString(), updatedAt: now.toISOString() };
 
 let originalConsoleError: typeof console.error;
@@ -47,6 +48,51 @@ test("GET /api/profile returns an empty profile before the first save", async ()
   const response = await request(createApp(makeRepository())).get("/api/profile");
   assert.equal(response.status, 200);
   assert.deepEqual(response.body, { ...candidateProfileSchema.parse({}), createdAt: null, updatedAt: null });
+});
+
+test("job recommendations ask for a profile before accessing jobs or the AI service", async () => {
+  let feedCalls = 0; let evaluatorCalls = 0;
+  const feed = { search: async (query: JobSearchInput) => { feedCalls++; return { jobs: [], total: 0, page: query.page, pageSize: query.pageSize, hasNextPage: false }; } };
+  const app = createApp(makeRepository(), feed, async () => { evaluatorCalls++; return []; });
+  const response = await request(app).get("/api/job-recommendations");
+  assert.equal(response.status, 200);
+  assert.equal(response.body.status, "profile_incomplete");
+  assert.match(response.body.message, /Complete your candidate profile/);
+  assert.equal(feedCalls, 0); assert.equal(evaluatorCalls, 0);
+});
+
+test("job recommendations rank Arbeitnow feed jobs using persisted profile without writing data", async () => {
+  const persisted: CandidateProfileRecord = { ...candidateProfileSchema.parse({ skills: ["Python"], targetJobTitles: ["Engineer"] }), createdAt: now.toISOString(), updatedAt: now.toISOString() };
+  let receivedProfile: unknown; let receivedJobs: unknown;
+  const recommendation: JobAnalysisResult = { sourceId: job.sourceId, source: job.source, title: job.title, company: job.company, location: job.location, country: job.country, workArrangement: job.workArrangement, url: job.url, remote: job.remote, score: 88, recommendation: "strong_match", confidence: "high", confidenceReasons: [], factorBreakdown: [], matchedEvidence: ["Skill match: Python."], missingOrUnverified: [], explanation: ["Profile signals align."] };
+  const feed = { search: async (query: JobSearchInput) => ({ jobs: [job], total: 44, page: query.page, pageSize: query.pageSize, hasNextPage: true }) };
+  const app = createApp(makeRepository({ getProfile: async () => persisted }), feed, async (profile, jobs) => { receivedProfile = profile; receivedJobs = jobs; return [recommendation]; });
+  const response = await request(app).get("/api/job-recommendations");
+  assert.equal(response.status, 200);
+  assert.equal(response.body.status, "ready"); assert.equal(response.body.availableCount, 44); assert.equal(response.body.hasMore, true);
+  assert.deepEqual(receivedProfile, { skills: ["Python"], professionalSummary: "", targetJobTitles: ["Engineer"], preferredCountries: [], preferredLocations: [], workArrangements: [], workAuthorization: "", experience: [] });
+  assert.deepEqual(receivedJobs, [job]);
+  assert.equal(response.body.recommendations[0].sourceId, job.sourceId);
+  assert.equal(response.body.recommendations[0].url, job.url);
+});
+
+test("job recommendation service failures return a safe retryable API error", async () => {
+  const profile = { ...candidateProfileSchema.parse({ skills: ["Python"] }), createdAt: now.toISOString(), updatedAt: now.toISOString() };
+  const feed = { search: async (query: JobSearchInput) => ({ jobs: [job], total: 1, page: query.page, pageSize: query.pageSize, hasNextPage: false }) };
+  const response = await request(createApp(makeRepository({ getProfile: async () => profile }), feed, async () => { throw new AIServiceError("timeout"); })).get("/api/job-recommendations");
+  assert.equal(response.status, 504);
+  assert.deepEqual(response.body.error, { code: "AI_SERVICE_TIMEOUT", message: "Job analysis is temporarily unavailable. Please retry shortly." });
+});
+
+test("empty job sources return status details without calling the evaluator", async () => {
+  const profile = { ...candidateProfileSchema.parse({ skills: ["Python"] }), createdAt: now.toISOString(), updatedAt: now.toISOString() };
+  let evaluatorCalls = 0;
+  const feed = { search: async (query: JobSearchInput) => ({ jobs: [], total: 0, page: query.page, pageSize: query.pageSize, hasNextPage: false, sources: [{ id: "remotive", name: "Remotive", status: "error" as const, fetched: 0, message: "unavailable", limitations: [] }] }) };
+  const response = await request(createApp(makeRepository({ getProfile: async () => profile }), feed, async () => { evaluatorCalls++; return []; })).get("/api/job-recommendations");
+  assert.equal(response.status, 200);
+  assert.equal(response.body.status, "ready");
+  assert.equal(response.body.sources[0].status, "error");
+  assert.equal(evaluatorCalls, 0);
 });
 
 test("resume endpoint rejects unsupported types and removes temporary uploads after parser failures", async () => {
@@ -175,7 +221,7 @@ test("GET /api/jobs validates filters and caps source pagination", async () => {
   const app = createApp(makeRepository(), { search: async query => { received = query; return { jobs: [job], total: 1, page: query.page, pageSize: query.pageSize, hasNextPage: false }; } });
   const response = await request(app).get("/api/jobs?keyword=design&location=Berlin&remoteOnly=true&page=2&pageSize=8");
   assert.equal(response.status, 200);
-  assert.deepEqual(received, { keyword: "design", location: "Berlin", remoteOnly: true, page: 2, pageSize: 8 });
+  assert.deepEqual(received, { keyword: "design", location: "Berlin", country: "", remoteOnly: true, sources: "", includeMatches: false, page: 2, pageSize: 8 });
   const invalid = await request(app).get("/api/jobs?page=99");
   assert.equal(invalid.status, 400);
   assert.equal(invalid.body.error.code, "VALIDATION_ERROR");
