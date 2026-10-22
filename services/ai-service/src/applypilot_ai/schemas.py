@@ -54,6 +54,9 @@ class AnalysisProfile(CamelModel):
     skills: list[str] = Field(default_factory=list, max_length=50)
     professional_summary: str = Field(default="", max_length=1500)
     target_job_titles: list[str] = Field(default_factory=list, max_length=30)
+    technical_domains: list[str] = Field(default_factory=list, max_length=20)
+    job_types: list[str] = Field(default_factory=list, max_length=10)
+    languages: list[str] = Field(default_factory=list, max_length=20)
     preferred_countries: list[str] = Field(default_factory=list, max_length=30)
     preferred_locations: list[str] = Field(default_factory=list, max_length=50)
     work_arrangements: list[Literal["remote", "hybrid", "onsite"]] = Field(default_factory=list, max_length=3)
@@ -104,10 +107,13 @@ class JobAnalysisResult(CamelModel):
     recommendation: Literal["strong_match", "potential_match", "low_match", "ineligible", "unknown"]
     confidence: Literal["high", "medium", "low"]
     confidence_reasons: list[str] = Field(default_factory=list, max_length=10)
-    factor_breakdown: list[AnalysisFactor] = Field(min_length=4, max_length=4)
+    factor_breakdown: list[AnalysisFactor] = Field(default_factory=list, max_length=4)
     matched_evidence: list[str] = Field(default_factory=list, max_length=30)
     missing_or_unverified: list[str] = Field(default_factory=list, max_length=30)
     explanation: list[str] = Field(default_factory=list, max_length=10)
+    eligible: bool = Field(default=True)
+    rejection_reason: str | None = Field(default=None, max_length=500)
+    rejection_category: str | None = Field(default=None, max_length=60)
 
 
 class JobAnalysisResponse(CamelModel):
