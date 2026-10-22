@@ -99,6 +99,89 @@ def test_work_authorization_is_never_assumed_eligible_or_ineligible() -> None:
     assert any("sponsorship compatibility are unknown" in item for item in result["missingOrUnverified"])
 
 
+def test_unrelated_domain_is_marked_ineligible() -> None:
+    payload = {
+        "profile": {
+            "skills": ["TypeScript", "React", "Python"],
+            "targetJobTitles": ["Software Engineer Intern"],
+        },
+        "jobs": [make_job(title="Senior Director of Music Licensing", description="Manage music publishing contracts, copyright licenses and royalty sales. " * 4)],
+    }
+    result = api_client().post("/v1/workflows/job-analysis", json=payload).json()["results"][0]
+    assert result["recommendation"] == "ineligible"
+    assert result["score"] <= 15
+    assert not any("built" in evidence.lower() for evidence in result["matchedEvidence"])
+
+
+def test_seniority_mismatch_penalizes_director_role_for_entry_candidate() -> None:
+    payload = {
+        "profile": {
+            "skills": ["Python", "FastAPI"],
+            "targetJobTitles": ["Junior Python Developer", "Software Intern"],
+        },
+        "jobs": [make_job(title="Director of Engineering", description="We need Python and FastAPI to direct engineering teams. " * 4)],
+    }
+    result = api_client().post("/v1/workflows/job-analysis", json=payload).json()["results"][0]
+    assert result["recommendation"] == "ineligible"
+    assert result["eligible"] is False
+    assert result["rejectionCategory"] == "seniority_mismatch"
+    assert any("seniority mismatch" in limit.lower() for limit in result["missingOrUnverified"])
+
+
+def test_unsupported_language_german_is_marked_ineligible() -> None:
+    payload = {
+        "profile": {
+            "skills": ["Python", "Docker"],
+            "targetJobTitles": ["Software Engineer"],
+            "languages": ["English"],
+        },
+        "jobs": [make_job(
+            title="Softwareentwickler Python (m/w/d)",
+            description="Wir suchen einen engagierten Entwickler. Sehr gute Deutschkenntnisse in Wort und Schrift erforderlich."
+        )],
+    }
+    result = api_client().post("/v1/workflows/job-analysis", json=payload).json()["results"][0]
+    assert result["recommendation"] == "ineligible"
+    assert result["eligible"] is False
+    assert result["rejectionCategory"] == "unsupported_language"
+    assert "German" in result["rejectionReason"]
+
+
+def test_mobile_developer_role_mismatch_is_marked_ineligible_for_backend_candidate() -> None:
+    payload = {
+        "profile": {
+            "skills": ["Python", "PostgreSQL", "Docker"],
+            "technicalDomains": ["Backend", "AI / ML"],
+            "targetJobTitles": ["Backend Engineer"],
+        },
+        "jobs": [make_job(
+            title="iOS Developer (Swift)",
+            description="We are seeking an iOS Developer with Swift and UIKit experience for mobile apps."
+        )],
+    }
+    result = api_client().post("/v1/workflows/job-analysis", json=payload).json()["results"][0]
+    assert result["recommendation"] == "ineligible"
+    assert result["eligible"] is False
+    assert result["rejectionCategory"] == "mobile_domain_mismatch"
+    assert "mobile development" in result["rejectionReason"].lower()
+
+
+def test_generic_stop_words_never_count_as_technical_skill_evidence() -> None:
+    payload = {
+        "profile": {
+            "skills": ["Python"],
+            "experience": [{"title": "Software Engineer", "company": "Tech Corp", "details": "Built and managed systems."}],
+        },
+        "jobs": [make_job(
+            title="Software Engineer",
+            description="Looking for an engineer who built large systems and managed agile teams."
+        )],
+    }
+    result = api_client().post("/v1/workflows/job-analysis", json=payload).json()["results"][0]
+    for evidence in result["matchedEvidence"]:
+        assert not any(word in evidence.lower() for word in ["built", "managed", "leader", "agile", "engineer"])
+
+
 def test_invalid_analysis_input_returns_safe_validation_error() -> None:
     response = api_client().post("/v1/workflows/job-analysis", json={"profile": {}, "jobs": [{"sourceId": "bad"}]})
     assert response.status_code == 422

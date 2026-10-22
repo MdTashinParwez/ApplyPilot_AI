@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
   candidateProfileSchema,
+  deriveSearchStrategy,
   type CandidateProfileInput,
   type EducationEntry,
   type ExperienceEntry,
@@ -213,7 +214,13 @@ export default function CandidateProfilePage() {
     {success && <p className="mt-4 rounded-lg border border-[var(--accent-border)] bg-[var(--accent-soft)] px-3 py-2.5 text-xs font-medium text-[var(--accent-text)]" role="status" aria-live="polite">Profile saved successfully.</p>}
     {loading ? <div className="mt-5 rounded-xl border border-dashed border-[var(--border-strong)] bg-[var(--surface)] px-5 py-12 text-center text-xs text-[var(--text-secondary)]" role="status">Loading your profile…</div> : loaded && <form className="mt-5 space-y-4" onSubmit={save}>
       <Section title="Basic Details" description="The name and introduction you want associated with your job search.">
-        <div className="grid gap-3 sm:grid-cols-2"><TextField title="Full name" value={profile.fullName} onChange={value => update("fullName", value)} maxLength={160} placeholder="Your name" error={fieldError("fullName")} /><TextField title="Professional summary" value={profile.professionalSummary} onChange={value => update("professionalSummary", value)} maxLength={4000} multiline placeholder="A short introduction (optional)" error={fieldError("professionalSummary")} /></div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <TextField title="Full name" value={profile.fullName} onChange={value => update("fullName", value)} maxLength={160} placeholder="Your name" error={fieldError("fullName")} />
+          <TextField title="Expected graduation date (optional)" value={profile.graduationDate} onChange={value => update("graduationDate", value)} maxLength={40} placeholder="e.g. May 2026" error={fieldError("graduationDate")} />
+          <div className="sm:col-span-2">
+            <TextField title="Professional summary" value={profile.professionalSummary} onChange={value => update("professionalSummary", value)} maxLength={4000} multiline placeholder="A short introduction (optional)" error={fieldError("professionalSummary")} />
+          </div>
+        </div>
       </Section>
       <Section title="Skills" description="Add skills you want to keep with your profile."><TagEditor title="Skills" values={profile.skills} placeholder="e.g. TypeScript" limit={50} error={fieldError("skills")} onChange={values => update("skills", values)} /></Section>
       <Section title="Education & Experience" description="Add any education, roles, or projects you choose to include.">
@@ -229,8 +236,100 @@ export default function CandidateProfilePage() {
           </RepeatableEntries>
         </div>
       </Section>
-      <Section title="Target Roles & Locations" description="Describe the jobs and places you prefer.">
-        <div className="space-y-4"><TagEditor title="Target job titles" values={profile.targetJobTitles} placeholder="e.g. Product Designer" limit={30} error={fieldError("targetJobTitles")} onChange={values => update("targetJobTitles", values)} /><TagEditor title="Preferred countries" values={profile.preferredCountries} placeholder="e.g. Canada" limit={30} error={fieldError("preferredCountries")} onChange={values => update("preferredCountries", values)} /><TagEditor title="Preferred locations" values={profile.preferredLocations} placeholder="e.g. Toronto" limit={50} error={fieldError("preferredLocations")} onChange={values => update("preferredLocations", values)} /></div>
+      <Section title="Target Domains & Job Types" description="Specify your technical domains and target role levels.">
+        <div className="space-y-4">
+          <div>
+            <span className={`${label} mb-1.5`}>Technical domains</span>
+            <div className="mb-2 flex flex-wrap gap-1.5">
+              {["Frontend", "Backend", "Full Stack", "DevOps / Cloud", "AI / Machine Learning", "Mobile", "Data Engineering", "Cybersecurity", "Systems & Embedded"].map(dom => {
+                const active = profile.technicalDomains.includes(dom);
+                return <button
+                  key={dom}
+                  type="button"
+                  className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${active ? "bg-[var(--accent)] text-white" : "border border-[var(--border)] bg-[var(--surface)] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]"}`}
+                  onClick={() => {
+                    const next = active
+                      ? profile.technicalDomains.filter(d => d !== dom)
+                      : [...profile.technicalDomains, dom];
+                    update("technicalDomains", next);
+                  }}
+                >{active ? "✓ " : "+ "}{dom}</button>;
+              })}
+            </div>
+            <TagEditor title="Custom technical domains" values={profile.technicalDomains} placeholder="Add custom domain" limit={20} error={fieldError("technicalDomains")} onChange={values => update("technicalDomains", values)} />
+          </div>
+          <div>
+            <span className={`${label} mb-2`}>Job types & role levels</span>
+            <div className="flex flex-wrap gap-x-4 gap-y-2">
+              {[
+                { id: "internship", label: "Internships & Co-ops" },
+                { id: "graduate", label: "Graduate roles & New Grad" },
+                { id: "entry_level", label: "Entry-level & Junior" },
+                { id: "mid_level", label: "Mid-level" },
+                { id: "full_time", label: "Full-time" }
+              ].map(item => <label key={item.id} className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
+                <input
+                  className="h-4 w-4 accent-[var(--accent)]"
+                  type="checkbox"
+                  checked={profile.jobTypes.includes(item.id)}
+                  onChange={event => {
+                    const next = event.target.checked
+                      ? [...profile.jobTypes, item.id]
+                      : profile.jobTypes.filter(t => t !== item.id);
+                    update("jobTypes", next);
+                  }}
+                />
+                {item.label}
+              </label>)}
+            </div>
+          </div>
+        </div>
+      </Section>
+      <Section title="Target Roles & Locations" description="Describe the job titles and geographic regions you prefer.">
+        <div className="space-y-4">
+          <TagEditor title="Target job titles" values={profile.targetJobTitles} placeholder="e.g. Software Engineer" limit={30} error={fieldError("targetJobTitles")} onChange={values => update("targetJobTitles", values)} />
+          <TagEditor title="Declared languages (English is assumed by default)" values={profile.languages} placeholder="e.g. English, German, French" limit={20} error={fieldError("languages")} onChange={values => update("languages", values)} />
+          <TagEditor title="Preferred countries (multiple allowed)" values={profile.preferredCountries} placeholder="e.g. United States, Germany, Canada" limit={30} error={fieldError("preferredCountries")} onChange={values => update("preferredCountries", values)} />
+          <TagEditor title="Preferred locations / cities" values={profile.preferredLocations} placeholder="e.g. Berlin, Remote, Toronto" limit={50} error={fieldError("preferredLocations")} onChange={values => update("preferredLocations", values)} />
+        </div>
+      </Section>
+      <Section title="Autonomous Search Strategy" description="Review or refine the search queries automatically derived from your profile facts.">
+        <div className="space-y-3">
+          <div className="rounded-lg border border-[var(--accent-border)] bg-[var(--accent-soft)] p-3 text-xs leading-relaxed text-[var(--accent-text)]">
+            <strong>Autonomous Assistant:</strong> ApplyPilot uses this derived strategy to search multiple public job sources on recurring schedule without repeatedly asking for keywords.
+          </div>
+          <div className="flex justify-end">
+            <button
+              type="button"
+              className="secondary text-xs"
+              onClick={() => {
+                const derived = deriveSearchStrategy(profileRef.current);
+                update("searchStrategy", derived);
+              }}
+            >
+              Re-derive strategy from profile
+            </button>
+          </div>
+          <TagEditor
+            title="Inferred target titles & synonyms"
+            values={profile.searchStrategy.targetTitles}
+            placeholder="Add title synonym"
+            limit={30}
+            onChange={values => update("searchStrategy", { ...profile.searchStrategy, targetTitles: values })}
+          />
+          <TagEditor
+            title="Autonomous search queries"
+            values={profile.searchStrategy.queries}
+            placeholder="Add search query"
+            limit={30}
+            onChange={values => update("searchStrategy", { ...profile.searchStrategy, queries: values })}
+          />
+          {profile.searchStrategy.lastDerivedAt && (
+            <p className="text-[10px] text-[var(--text-muted)]">
+              Last derived: {new Date(profile.searchStrategy.lastDerivedAt).toLocaleString()}
+            </p>
+          )}
+        </div>
       </Section>
       <Section title="Work Preferences" description="Set the work arrangements and minimum compensation you prefer.">
         <div className="grid gap-4 sm:grid-cols-2">
