@@ -31,7 +31,7 @@ export const jobSearchSchema = z.object({
 
 export const jobSchema = z.object({
   sourceId: z.string().min(1).max(200),
-  source: z.enum(["arbeitnow", "remotive", "remote_ok", "greenhouse", "lever"]),
+  source: z.enum(["arbeitnow", "remotive", "remote_ok", "greenhouse", "lever", "jobicy"]),
   sourceAttribution: z.string().max(200).default(""),
   title: z.string().trim().min(1).max(200),
   company: z.string().trim().min(1).max(160),
@@ -90,6 +90,24 @@ export type EducationEntry = z.infer<typeof educationEntrySchema>;
 export type ExperienceEntry = z.infer<typeof experienceEntrySchema>;
 export type ProjectEntry = z.infer<typeof projectEntrySchema>;
 
+export const searchStrategySchema = z.object({
+  targetTitles: z.array(z.string().trim().min(1).max(160)).default([]),
+  queries: z.array(z.string().trim().min(1).max(160)).default([]),
+  keywords: z.array(z.string().trim().min(1).max(80)).default([]),
+  technicalDomains: z.array(z.string().trim().min(1).max(80)).default([]),
+  jobTypes: z.array(z.string().trim().min(1).max(60)).default([]),
+  lastDerivedAt: z.string().datetime().nullable().default(null)
+}).default({
+  targetTitles: [],
+  queries: [],
+  keywords: [],
+  technicalDomains: [],
+  jobTypes: [],
+  lastDerivedAt: null
+});
+
+export type SearchStrategy = z.infer<typeof searchStrategySchema>;
+
 export const candidateProfileSchema = z.object({
   fullName: profileText(160),
   professionalSummary: profileText(4000),
@@ -98,12 +116,17 @@ export const candidateProfileSchema = z.object({
   experience: z.array(experienceEntrySchema).max(30).default([]),
   projects: z.array(projectEntrySchema).max(30).default([]),
   targetJobTitles: z.array(z.string().trim().min(1).max(160)).max(30).default([]),
+  technicalDomains: z.array(z.string().trim().min(1).max(80)).max(20).default([]),
+  jobTypes: z.array(z.string().trim().min(1).max(60)).max(10).default([]),
+  languages: z.array(z.string().trim().min(1).max(60)).max(20).default([]),
+  graduationDate: profileText(40),
   preferredCountries: z.array(z.string().trim().min(1).max(120)).max(30).default([]),
   preferredLocations: z.array(z.string().trim().min(1).max(160)).max(50).default([]),
   workArrangements: z.array(z.enum(["remote", "hybrid", "onsite"])).max(3).default([]),
   minimumSalary: z.number().int().min(0).max(100000000).nullable().default(null),
   workAuthorization: profileText(2000),
-  resumeText: profileText(100000)
+  resumeText: profileText(100000),
+  searchStrategy: searchStrategySchema
 });
 
 export type CandidateProfileInput = z.infer<typeof candidateProfileSchema>;
@@ -111,3 +134,6 @@ export interface CandidateProfileRecord extends CandidateProfileInput {
   createdAt: string | null;
   updatedAt: string | null;
 }
+
+export * from "./searchStrategy.js";
+

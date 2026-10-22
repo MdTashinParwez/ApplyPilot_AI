@@ -1,13 +1,14 @@
 import Icon, { type IconName } from "./Icon.js";
 
-type WorkspacePage = "applications" | "discover" | "saved" | "recommendations" | "profile";
+type WorkspacePage = "applications" | "discover" | "saved" | "recommendations" | "profile" | "assistant";
 
 const links: { id: WorkspacePage; label: string; icon: IconName }[] = [
   { id: "applications", label: "Applications", icon: "grid" },
   { id: "discover", label: "Discover jobs", icon: "search" },
   { id: "saved", label: "Saved jobs", icon: "bookmark" },
   { id: "recommendations", label: "Recommendations", icon: "sparkles" },
-  { id: "profile", label: "Candidate profile", icon: "briefcase" }
+  { id: "profile", label: "Candidate profile", icon: "briefcase" },
+  { id: "assistant", label: "Review queue", icon: "sparkles" }
 ];
 
 const navItem = "flex flex-1 items-center justify-center gap-2 rounded-lg px-2 py-2.5 text-left text-[12px] font-semibold text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus)] min-[681px]:w-full min-[681px]:flex-none min-[681px]:justify-start min-[681px]:gap-3 min-[681px]:px-3 min-[681px]:text-[13px]";

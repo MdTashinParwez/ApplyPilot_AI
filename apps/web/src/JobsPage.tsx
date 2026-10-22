@@ -3,8 +3,28 @@ import type { Job, SavedJob } from "@applypilot/shared";
 import Icon from "./Icon.js";
 
 const api = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
-type SourceInfo = { id: string; name: string; status: "available" | "disabled" | "error"; fetched: number; message?: string; limitations: string[] };
+type SourceInfo = { id: string; name: string; status: "success" | "empty" | "disabled" | "error"; fetched: number; message?: string; limitations: string[] };
 type SearchResponse = { jobs: Job[]; total: number; page: number; pageSize: number; hasNextPage: boolean; sources?: SourceInfo[]; coverageLimitations?: string[]; matchScores?: Record<string, { score: number | null; recommendation: string; confidence: string }>; evaluatorStatus?: string; evaluatorMessage?: string };
+
+function getRoleLevelBadge(title: string) {
+  const lower = title.toLowerCase();
+  if (lower.includes("intern") || lower.includes("co-op")) {
+    return <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[9px] font-semibold text-blue-800 dark:bg-blue-950 dark:text-blue-300">Internship</span>;
+  }
+  if (lower.includes("graduate") || lower.includes("new grad")) {
+    return <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[9px] font-semibold text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300">Graduate</span>;
+  }
+  if (lower.includes("junior") || lower.includes("entry") || lower.includes("associate")) {
+    return <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[9px] font-semibold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">Entry-level</span>;
+  }
+  if (lower.includes("director") || lower.includes("vp") || lower.includes("head of") || lower.includes("chief")) {
+    return <span className="rounded-full bg-purple-100 px-2 py-0.5 text-[9px] font-semibold text-purple-800 dark:bg-purple-950 dark:text-purple-300">Executive</span>;
+  }
+  if (lower.includes("senior") || lower.includes("lead") || lower.includes("principal") || lower.includes("staff")) {
+    return <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-semibold text-amber-800 dark:bg-amber-950 dark:text-amber-300">Senior</span>;
+  }
+  return null;
+}
 
 function JobCard({
   job, view, busy, message, match, onSave, onMove
@@ -24,11 +44,16 @@ function JobCard({
       <span className="company-mark" aria-hidden="true">{job.company.slice(0, 1).toUpperCase()}</span>
       <span className="ml-auto rounded-full bg-[var(--accent-soft)] px-2 py-1 text-[10px] font-semibold text-[var(--accent-text)]">{job.sourceAttribution || job.source}</span>
     </div>
-    <h2 className="mt-3.5 text-[15px] font-bold leading-snug text-[var(--text)]">{job.title}</h2>
+    <div className="mt-3.5 flex flex-wrap items-center gap-1.5">
+      <h2 className="text-[15px] font-bold leading-snug text-[var(--text)]">{job.title}</h2>
+      {getRoleLevelBadge(job.title)}
+    </div>
     <p className="mt-1 text-xs text-[var(--text-secondary)]">{job.company}</p>
     <div className="mt-3 flex flex-wrap items-center gap-2 text-[10px] text-[var(--text-muted)]">
       <span>{job.location || "Location not listed"}</span>
       {job.remote && <span className="rounded-full bg-[var(--accent-soft)] px-2 py-1 font-semibold text-[var(--accent-text)]">Remote</span>}
+      {!job.remote && job.workArrangement && <span className="rounded-full bg-[var(--accent-soft)] px-2 py-1 font-semibold text-[var(--accent-text)]">{job.workArrangement}</span>}
+      {job.remote === null && !job.workArrangement && <span className="rounded-full border border-[var(--border)] px-2 py-1">Work arrangement unknown</span>}
       {match && <span className="rounded-full border border-[var(--border)] px-2 py-1 font-semibold text-[var(--text-secondary)]">{match.score === null ? "Match unknown" : `${match.score}/100 match`}{match.confidence === "low" ? " · limited" : ""}</span>}
       {job.publishedAt && <time className="ml-auto" dateTime={job.publishedAt}>{new Date(job.publishedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</time>}
     </div>
@@ -71,6 +96,7 @@ export default function JobsPage({ view, onMoved }: { view: "discover" | "saved"
     let timer: number | undefined;
     const load = async () => {
       setLoading(true); setError("");
+      if (view === "discover") { setSources([]); setCoverage([]); setMatchScores({}); setEvaluatorMessage(""); }
       try {
         if (view === "saved") {
           const response = await fetch(`${api}/api/saved-jobs`, { signal: controller.signal });
@@ -119,10 +145,11 @@ export default function JobsPage({ view, onMoved }: { view: "discover" | "saved"
   }
 
   const cards: (Job | SavedJob)[] = view === "saved" ? savedJobs : jobs;
+  const allSourcesUnavailable = view === "discover" && sources.length > 0 && sources.every(source => source.status === "error" || source.status === "disabled");
   return <section className="mx-auto w-full max-w-[1176px] px-4 py-7 sm:px-6 md:py-10 lg:px-12">
     <div className="text-[10px] font-bold tracking-[1.15px] text-[var(--text-muted)]">YOUR JOB SEARCH</div>
     <div className="mt-2 flex items-start justify-between gap-3">
-      <div><h1 className="text-2xl font-bold tracking-tight text-[var(--text)] md:text-[29px]">{view === "saved" ? "Saved jobs" : "Discover jobs"}</h1><p className="mt-1.5 text-xs text-[var(--text-muted)]">{view === "saved" ? "Keep promising roles close, then add them to your tracker." : "Explore current listings from the Arbeitnow job board."}</p></div>
+      <div><h1 className="text-2xl font-bold tracking-tight text-[var(--text)] md:text-[29px]">{view === "saved" ? "Saved jobs" : "Discover jobs"}</h1><p className="mt-1.5 text-xs text-[var(--text-muted)]">{view === "saved" ? "Keep promising roles close, then add them to your tracker." : "Explore listings across the enabled public job feeds."}</p></div>
     </div>
     {view === "discover" && <form className="mt-5 grid items-end gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 shadow-[var(--shadow-soft)] md:mt-6 md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]" onSubmit={event => event.preventDefault()} role="search" aria-label="Filter jobs">
       <label className="flex flex-col gap-1.5 text-[11px] font-semibold text-[var(--text-secondary)]">Keyword<input className="min-h-[38px] w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2.5 py-2 text-xs text-[var(--text)] placeholder:text-[var(--text-faint)] focus:border-[var(--focus)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]" value={keyword} onChange={event => setKeyword(event.target.value)} maxLength={100} placeholder="Title, company, skills" /></label>
@@ -130,11 +157,11 @@ export default function JobsPage({ view, onMoved }: { view: "discover" | "saved"
       <label className="flex flex-col gap-1.5 text-[11px] font-semibold text-[var(--text-secondary)]">Country<input className="min-h-[38px] w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2.5 py-2 text-xs text-[var(--text)] placeholder:text-[var(--text-faint)] focus:border-[var(--focus)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]" value={country} onChange={event => setCountry(event.target.value)} maxLength={100} placeholder="Any country" /></label>
       <label className="flex min-h-[38px] items-center gap-2 whitespace-nowrap text-[11px] font-semibold text-[var(--text-secondary)]"><input className="h-4 w-4 accent-[var(--accent)]" type="checkbox" checked={remoteOnly} onChange={event => setRemoteOnly(event.target.checked)} />Remote only</label>
     </form>}
-    {view === "discover" && <div className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 text-[10px] text-[var(--text-secondary)]"><div className="flex flex-wrap items-center gap-2"><strong className="text-[var(--text)]">Sources</strong>{loading ? <span role="status">Checking feeds…</span> : sources.map(source => <span key={source.id} className={`rounded-full px-2 py-1 ${source.status === "available" ? "bg-[var(--accent-soft)] text-[var(--accent-text)]" : source.status === "error" ? "bg-red-500/10 text-red-600 dark:text-red-300" : "border border-[var(--border)] text-[var(--text-muted)]"}`}>{source.name}: {source.status === "available" ? `${source.fetched} fetched` : source.status}{source.message ? ` · ${source.message}` : ""}</span>)}</div>{evaluatorMessage && <p className="mt-2">{evaluatorMessage}</p>}{coverage.length > 0 && <details className="mt-2"><summary className="cursor-pointer font-semibold">Coverage limits</summary><ul className="mt-1 list-inside list-disc">{coverage.map(item => <li key={item}>{item}</li>)}</ul></details>}</div>}
+    {view === "discover" && <div className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 text-[10px] text-[var(--text-secondary)]"><div className="flex flex-wrap items-center gap-2"><strong className="text-[var(--text)]">Sources</strong>{loading ? <span role="status">Checking feeds…</span> : sources.map(source => <span key={source.id} className={`rounded-full px-2 py-1 ${source.status === "success" ? "bg-[var(--accent-soft)] text-[var(--accent-text)]" : source.status === "error" ? "bg-red-500/10 text-red-600 dark:text-red-300" : "border border-[var(--border)] text-[var(--text-muted)]"}`}>{source.name}: {source.status === "success" ? `${source.fetched} fetched` : source.status === "empty" ? "empty" : source.status}{source.message ? ` · ${source.message}` : ""}</span>)}</div>{evaluatorMessage && <p className="mt-2">{evaluatorMessage}</p>}{coverage.length > 0 && <details className="mt-2"><summary className="cursor-pointer font-semibold">Coverage limits</summary><ul className="mt-1 list-inside list-disc">{coverage.map(item => <li key={item}>{item}</li>)}</ul></details>}</div>}
     {view === "discover" && <div className="mb-3 mt-7 flex items-baseline justify-between"><h2 className="text-[15px] font-bold text-[var(--text)]">Job listings</h2><span className="text-[11px] text-[var(--text-muted)]">{loading ? "Searching…" : `${total} ${total === 1 ? "result" : "results"}`}</span></div>}
     {error && <div className="alert" role="alert"><span>{error}</span><button type="button" onClick={() => setAttempt(value => value + 1)}>Retry</button></div>}
     {loading && <div className="mt-4 rounded-lg border border-dashed border-[var(--border-strong)] bg-[var(--surface)] px-5 py-11 text-center text-xs text-[var(--text-secondary)]" role="status">{view === "saved" ? "Loading saved jobs…" : "Searching current listings…"}</div>}
-    {!loading && !error && cards.length === 0 && <div className="mt-4 rounded-lg border border-dashed border-[var(--border-strong)] bg-[var(--surface)] px-5 py-11 text-center text-[var(--text)]"><strong className="text-sm font-bold">{view === "saved" ? "No saved jobs yet" : "No matching jobs found"}</strong><p className="mt-2 text-[11px] text-[var(--text-muted)]">{view === "saved" ? "Save a listing from Job Discovery to see it here." : "Try another keyword or location, or clear the remote filter."}</p></div>}
+    {!loading && !error && cards.length === 0 && <div className="mt-4 rounded-lg border border-dashed border-[var(--border-strong)] bg-[var(--surface)] px-5 py-11 text-center text-[var(--text)]"><strong className="text-sm font-bold">{view === "saved" ? "No saved jobs yet" : allSourcesUnavailable ? "Job feeds unavailable" : "No matching jobs found"}</strong><p className="mt-2 text-[11px] text-[var(--text-muted)]">{view === "saved" ? "Save a listing from Job Discovery to see it here." : allSourcesUnavailable ? "No enabled source returned listings. Check the source statuses above and retry." : "Try another keyword or location, or clear the remote filter."}</p></div>}
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">{!loading && !error && cards.map(job => <JobCard key={"id" in job ? job.id : `${job.source}:${job.sourceId}`} job={job} view={view} match={"id" in job ? undefined : matchScores?.[`${job.source}:${job.sourceId}`]} busy={busyId === ("id" in job ? job.id : job.sourceId)} message={feedback["id" in job ? job.id : job.sourceId]} onSave={save} onMove={move} />)}</div>
     {view === "discover" && <div className="my-6 flex items-center justify-center gap-4 text-[11px] text-[var(--text-muted)]"><button className="secondary min-w-[82px]" type="button" disabled={page <= 1 || loading} onClick={() => setPage(value => value - 1)}>Previous</button><span>Page {page}</span><button className="secondary min-w-[82px]" type="button" disabled={!hasNextPage || loading} onClick={() => setPage(value => value + 1)}>Next</button></div>}
     <footer className="mt-6 flex flex-col justify-between gap-3 py-5 text-[10px] text-[var(--text-faint)] sm:flex-row"><span>Listings are attributed to their original job sources.</span><span>Listings open at their original source</span></footer>
