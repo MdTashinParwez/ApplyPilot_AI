@@ -45,7 +45,7 @@ export function normalizeArbeitnowJob(raw: ArbeitnowRecord): Job | null {
 }
 
 export interface JobSource { search(query: JobSearchInput): Promise<{ jobs: Job[]; total: number; page: number; pageSize: number; hasNextPage: boolean; sources?: SourceStatus[]; coverageLimitations?: string[] }>; }
-export interface SourceStatus { id: string; name: string; status: "available" | "disabled" | "error"; fetched: number; message?: string; limitations: string[]; }
+export interface SourceStatus { id: string; name: string; status: "success" | "empty" | "disabled" | "error"; fetched: number; message?: string; limitations: string[]; }
 export interface JobAdapter { readonly id: string; readonly name: string; readonly attribution: string; readonly limitations: string[]; fetchJobs(): Promise<Job[]>; }
 
 export function createArbeitnowSource(fetcher: FetchLike = fetch, now: () => number = Date.now): JobSource & JobAdapter {
@@ -72,7 +72,12 @@ export function createArbeitnowSource(fetcher: FetchLike = fetch, now: () => num
           return (body as { data: ArbeitnowRecord[] }).data;
         }));
         const jobs = new Map<string, Job>();
-        for (const row of responses.flat()) { const job = normalizeArbeitnowJob(row); if (job) jobs.set(job.sourceId, job); }
+        const rows = responses.flat();
+        for (const row of rows) {
+          const job = normalizeArbeitnowJob(row);
+          if (job) jobs.set(`${job.sourceId}:${job.url}`, job);
+        }
+        if (rows.length > 0 && jobs.size === 0) throw new JobSourceError("unavailable", "The Arbeitnow feed had listings, but none could be normalized.");
         const result = [...jobs.values()];
         cached = { jobs: result, expires: now() + CACHE_MS };
         return result;

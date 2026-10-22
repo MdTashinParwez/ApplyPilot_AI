@@ -18,6 +18,8 @@ test("normalizes source fields, canonical URLs, and safely omits unusable record
   assert.equal(normalized.country, "Canada");
   assert.equal(normalizeExternalJob("remotive", "1", "", "Co", "", "", "", true), null);
   assert.equal(normalizeExternalJob("remotive", "1", "Engineer", "Co", "", "javascript:alert(1)", "", true), null);
+  const descriptionOnlyRemote = normalizeExternalJob("greenhouse", "1", "Engineer", "Co", "Berlin", "https://careers.example/1", "This role has no remote work option.", null);
+  assert.equal(descriptionOnlyRemote?.remote, null);
 });
 
 test("Remotive and Remote OK adapters normalize public feed records", async () => {
@@ -34,6 +36,26 @@ test("Remotive and Remote OK adapters normalize public feed records", async () =
   assert.equal(remotive[0]?.country, "Canada");
   assert.equal(remoteOk[0]?.source, "remote_ok");
   assert.equal(remoteOk[0]?.sourceAttribution, "Remote OK");
+});
+
+test("external adapters reject malformed and wholly unnormalizable feeds", async () => {
+  const remotiveMalformed = createPublicJobAdapters(async () => new Response(JSON.stringify({ jobs: "not-an-array" }))).find(item => item.id === "remotive")!;
+  await assert.rejects(remotiveMalformed.fetchJobs(), /unexpected response/i);
+  const remoteOkMalformed = createPublicJobAdapters(async () => new Response(JSON.stringify({ jobs: [] }))).find(item => item.id === "remote_ok")!;
+  await assert.rejects(remoteOkMalformed.fetchJobs(), /unexpected response/i);
+  const remotiveUnnormalizable = createPublicJobAdapters(async () => new Response(JSON.stringify({ jobs: [{ id: 1, title: "", company_name: "Bad", url: "https://jobs.example.test" }] }))).find(item => item.id === "remotive")!;
+  await assert.rejects(remotiveUnnormalizable.fetchJobs(), /could not be normalized/i);
+});
+
+test("public adapters bound normalized feed sizes", async () => {
+  const fetcher: typeof fetch = async input => {
+    if (String(input).startsWith("https://remotive.com/")) return new Response(JSON.stringify({ jobs: Array.from({ length: 125 }, (_, id) => ({ id, title: `Engineer ${id}`, company_name: "Demo", url: `https://remotive.com/jobs/${id}` })) }));
+    if (String(input) === "https://remoteok.com/api") return new Response(JSON.stringify(Array.from({ length: 240 }, (_, id) => ({ id, position: `Engineer ${id}`, company: "Demo", url: `https://remoteok.com/jobs/${id}` }))));
+    return new Response(JSON.stringify({ data: [] }));
+  };
+  const adapters = createPublicJobAdapters(fetcher);
+  assert.equal((await adapters.find(item => item.id === "remotive")!.fetchJobs()).length, 100);
+  assert.equal((await adapters.find(item => item.id === "remote_ok")!.fetchJobs()).length, 200);
 });
 
 test("registry deduplicates repeated canonical listings, filters country and reports partial source failures", async () => {
@@ -54,4 +76,43 @@ test("registry deduplicates repeated canonical listings, filters country and rep
   assert.equal(byCity.jobs.length, 1);
   const byOtherCity = await registry.search({ keyword: "", location: "Mumbai", country: "", sources: "", remoteOnly: false, includeMatches: false, page: 1, pageSize: 12 });
   assert.equal(byOtherCity.jobs.length, 0);
+});
+
+test("slow sources time out independently while fast sources still return listings", async () => {
+  const adapters: JobAdapter[] = [
+    { id: "remotive", name: "Remotive", attribution: "Remotive", limitations: [], fetchJobs: async () => [job()] },
+    { id: "remote_ok", name: "Remote OK", attribution: "Remote OK", limitations: [], fetchJobs: async () => new Promise(resolve => setTimeout(() => resolve([job({ source: "remote_ok", sourceId: "late", url: "https://jobs.example.test/late" })]), 100)) }
+  ];
+  const started = Date.now();
+  const result = await createJobSourceRegistry(adapters, 10).search({ keyword: "", location: "", country: "", sources: "", remoteOnly: false, includeMatches: false, page: 1, pageSize: 12 });
+  assert.ok(Date.now() - started < 80);
+  assert.equal(result.jobs.length, 1);
+  assert.equal(result.jobs[0]?.source, "remotive");
+  assert.equal(result.sources?.find(source => source.id === "remote_ok")?.status, "error");
+});
+
+test("identical generic URLs with different job identities are not deduplicated", async () => {
+  const generic = "https://example.test/careers";
+  const adapters: JobAdapter[] = [
+    { id: "remotive", name: "Remotive", attribution: "Remotive", limitations: [], fetchJobs: async () => [job({ url: generic })] },
+    { id: "remote_ok", name: "Remote OK", attribution: "Remote OK", limitations: [], fetchJobs: async () => [job({ source: "remote_ok", sourceId: "separate", title: "Data Analyst", url: generic })] }
+  ];
+  const result = await createJobSourceRegistry(adapters).search({ keyword: "", location: "", country: "", sources: "", remoteOnly: false, includeMatches: false, page: 1, pageSize: 12 });
+  assert.equal(result.jobs.length, 2);
+});
+
+test("a valid empty feed is reported as empty rather than successful with results", async () => {
+  const adapters: JobAdapter[] = [{ id: "remotive", name: "Remotive", attribution: "Remotive", limitations: [], fetchJobs: async () => [] }];
+  const result = await createJobSourceRegistry(adapters).search({ keyword: "", location: "", country: "", sources: "", remoteOnly: false, includeMatches: false, page: 1, pageSize: 12 });
+  assert.equal(result.sources?.[0]?.status, "empty");
+});
+
+test("matching canonical URL with a different location preserves the distinct listing", async () => {
+  const url = "https://example.test/careers";
+  const adapters: JobAdapter[] = [
+    { id: "remotive", name: "Remotive", attribution: "Remotive", limitations: [], fetchJobs: async () => [job({ url, location: "Toronto, Canada" })] },
+    { id: "remote_ok", name: "Remote OK", attribution: "Remote OK", limitations: [], fetchJobs: async () => [job({ source: "remote_ok", sourceId: "other", url, location: "Vancouver, Canada" })] }
+  ];
+  const result = await createJobSourceRegistry(adapters).search({ keyword: "", location: "", country: "", sources: "", remoteOnly: false, includeMatches: false, page: 1, pageSize: 12 });
+  assert.equal(result.jobs.length, 2);
 });
