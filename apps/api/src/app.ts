@@ -6,13 +6,17 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { ZodError } from "zod";
-import { candidateProfileSchema, createApplicationSchema, jobSearchSchema, saveJobSchema, type ApplicationRecord, type CandidateProfileInput } from "@applypilot/shared";
+import { candidateProfileSchema, createApplicationSchema, deriveSearchStrategy, jobSearchSchema, saveJobSchema, type ApplicationRecord, type CandidateProfileInput } from "@applypilot/shared";
 import type { ApplicationRepository } from "./repository.js";
 import { JobSourceError, type JobSource } from "./jobs/arbeitnow.js";
 import { createJobSourceRegistry } from "./jobs/publicSources.js";
 import { extractResumeText, ResumeParseError } from "./resume/extract.js";
 import { parseResume } from "./resume/parse.js";
-import { AIServiceError, analyzeJobs, type AnalysisProfile, type JobAnalysisResult } from "./aiServiceClient.js";
+import { AIServiceError, analyzeJobs, type AnalysisProfile, type JobAnalysisResult, type JobAnalyzer } from "./aiServiceClient.js";
+import type { AssistantRepository } from "./assistantRepository.js";
+import { DiscoveryBusyError, DiscoveryProfileError } from "./discovery.js";
+import { createAssistantRouter } from "./assistantRoutes.js";
+import { DatabaseUnavailableError } from "./apiErrors.js";
 
 const configuredResumeLimit = Number(process.env.RESUME_MAX_SIZE_MB ?? 5);
 const resumeLimit = (Number.isFinite(configuredResumeLimit) ? Math.max(1, configuredResumeLimit) : 5) * 1024 * 1024;
@@ -27,27 +31,19 @@ const resumeUpload = multer({
   }
 });
 
-class DatabaseUnavailableError extends Error {
-  constructor(cause: unknown) {
-    super("Database operation failed", { cause });
-    this.name = "DatabaseUnavailableError";
-  }
-}
-
 function serialize(record: ApplicationRecord) {
   return { ...record, createdAt: new Date(record.createdAt).toISOString(), updatedAt: new Date(record.updatedAt).toISOString() };
 }
-
-export type JobAnalyzer = (profile: AnalysisProfile, jobs: import("@applypilot/shared").Job[]) => Promise<JobAnalysisResult[]>;
 
 function hasEvaluationProfile(profile: CandidateProfileInput): boolean {
   return Boolean(profile.skills.length || profile.targetJobTitles.length || profile.preferredCountries.length || profile.preferredLocations.length || profile.workArrangements.length || profile.professionalSummary.trim() || profile.experience.some(item => item.title || item.company || item.details));
 }
 
-export function createApp(repository: ApplicationRepository, jobSource: JobSource = createJobSourceRegistry(), jobAnalyzer: JobAnalyzer = analyzeJobs) {
+export function createApp(repository: ApplicationRepository, jobSource: JobSource = createJobSourceRegistry(), jobAnalyzer: JobAnalyzer = analyzeJobs, assistantRepository?: AssistantRepository) {
   const app = express();
   app.use(cors({ origin: process.env.WEB_ORIGIN ?? "http://localhost:5173" }));
   app.use(express.json({ limit: "512kb" }));
+  app.use("/api", createAssistantRouter(repository, jobSource, jobAnalyzer, assistantRepository));
 
   app.get("/api/health", async (_req, res) => {
     let database: "connected" | "disconnected" = "connected";
@@ -113,7 +109,19 @@ export function createApp(repository: ApplicationRepository, jobSource: JobSourc
   app.put("/api/profile", async (req, res, next) => {
     try {
       const input: CandidateProfileInput = candidateProfileSchema.parse(req.body);
+      if (!input.searchStrategy.queries.length && !input.searchStrategy.targetTitles.length) {
+        input.searchStrategy = deriveSearchStrategy(input);
+      }
       res.json(await repository.upsertProfile(input));
+    } catch (error) {
+      next(error instanceof ZodError ? error : new DatabaseUnavailableError(error));
+    }
+  });
+
+  app.post("/api/profile/derive-strategy", (req, res, next) => {
+    try {
+      const input: CandidateProfileInput = candidateProfileSchema.parse(req.body);
+      res.json(deriveSearchStrategy(input));
     } catch (error) {
       next(error instanceof ZodError ? error : new DatabaseUnavailableError(error));
     }
@@ -184,6 +192,8 @@ export function createApp(repository: ApplicationRepository, jobSource: JobSourc
   app.use("/api", (_req, res) => res.status(404).json({ error: { code: "NOT_FOUND", message: "API route not found" } }));
 
   const errors: ErrorRequestHandler = (error, _req, res, _next) => {
+    if (error instanceof DiscoveryBusyError) { res.status(409).json({ error: { code: "DISCOVERY_IN_PROGRESS", message: "A discovery run is already in progress." } }); return; }
+    if (error instanceof DiscoveryProfileError) { res.status(409).json({ error: { code: "PROFILE_INCOMPLETE", message: error.message } }); return; }
     if (error instanceof ZodError) {
       res.status(400).json({ error: { code: "VALIDATION_ERROR", message: "Request validation failed", details: error.issues.map(issue => ({ path: issue.path.join("."), message: issue.message })) } });
       return;
