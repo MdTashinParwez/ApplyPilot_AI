@@ -63,6 +63,11 @@ model CandidateProfile {
   experience          Json     @default("[]")
   projects            Json     @default("[]")
   targetJobTitles     String[] @default([])
+  technicalDomains    String[] @default([])
+  jobTypes            String[] @default([])
+  languages           String[] @default([])
+  graduationDate      String   @default("") @db.VarChar(40)
+  searchStrategy      Json     @default("{}")
   preferredCountries  String[] @default([])
   preferredLocations  String[] @default([])
   workArrangements    String[] @default([])
@@ -73,4 +78,131 @@ model CandidateProfile {
   updatedAt           DateTime @updatedAt
 
   @@map("candidate_profiles")
+}
+
+enum AssistantReviewStatus {
+  needs_review
+  approved
+  completed
+  failed
+  skipped
+}
+
+model DiscoveryRun {
+  id              String   @id @default(cuid())
+  status          String   @db.VarChar(24)
+  startedAt       DateTime @default(now())
+  finishedAt      DateTime?
+  discoveredCount Int      @default(0)
+  newCount        Int      @default(0)
+  rejectedCount   Int      @default(0)
+  rejectionReasons Json    @default("{}")
+  sourceResults   Json     @default("[]")
+  errorMessage    String?  @db.VarChar(500)
+
+  @@index([startedAt])
+  @@map("discovery_runs")
+}
+
+model JobOpportunity {
+  id                String                @id @default(cuid())
+  source            String                @db.VarChar(40)
+  sourceId          String                @db.VarChar(240)
+  sourceAttribution String                @default("") @db.VarChar(120)
+  title             String                @db.VarChar(200)
+  company           String                @db.VarChar(160)
+  location          String                @default("") @db.VarChar(200)
+  country           String?               @db.VarChar(100)
+  workArrangement   String?               @db.VarChar(24)
+  remote            Boolean?
+  jobUrl            String                @db.Text
+  matchScore        Int?
+  recommendation    String                @default("unknown") @db.VarChar(32)
+  confidence        String                @default("low") @db.VarChar(16)
+  isEligible        Boolean               @default(true)
+  rejectionReason   String?               @db.VarChar(500)
+  rejectionCategory String?               @db.VarChar(60)
+  matchedEvidence   Json                  @default("[]")
+  missingRequirements Json                @default("[]")
+  explanation       Json                  @default("[]")
+  factorBreakdown   Json                  @default("[]")
+  reviewStatus      AssistantReviewStatus @default(needs_review)
+  firstSeenAt       DateTime              @default(now())
+  lastSeenAt        DateTime              @default(now())
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  preparation       ApplicationPreparation?
+  emailDraft        RecruiterEmailDraft?
+  approvals         ApprovedAction[]
+
+  @@unique([source, sourceId])
+  @@index([reviewStatus, matchScore])
+  @@index([lastSeenAt])
+  @@map("job_opportunities")
+}
+
+model ApplicationPreparation {
+  id                    String                @id @default(cuid())
+  opportunityId         String                @unique
+  opportunity           JobOpportunity        @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  status                AssistantReviewStatus @default(needs_review)
+  profileFactsSnapshot  Json                  @default("{}")
+  unansweredQuestions   Json                  @default("[]")
+  generatedMaterials    Json                  @default("[]")
+  submissionAvailable   Boolean               @default(false)
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+  approvals             ApprovedAction[]
+
+  @@map("application_preparations")
+}
+
+model RecruiterEmailDraft {
+  id                  String                @id @default(cuid())
+  opportunityId       String                @unique
+  opportunity         JobOpportunity        @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  recipientAddress   String?               @db.VarChar(320)
+  recipientProvenance String                @default("") @db.VarChar(1000)
+  recipientVerified  Boolean               @default(false)
+  verifiedAt         DateTime?
+  subject             String                @default("") @db.VarChar(300)
+  body                String                @default("") @db.VarChar(10000)
+  factsUsed           Json                  @default("[]")
+  status              AssistantReviewStatus @default(needs_review)
+  approvedBy          String?               @db.VarChar(100)
+  approvedAt          DateTime?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  approvals           ApprovedAction[]
+
+  @@map("recruiter_email_drafts")
+}
+
+model ApprovedAction {
+  id              String                @id @default(cuid())
+  targetKey       String                @unique @db.VarChar(300)
+  actionType      String                @db.VarChar(32)
+  status          AssistantReviewStatus @default(approved)
+  approvedBy      String                @db.VarChar(100)
+  approvedAt      DateTime              @default(now())
+  outcome         String?               @db.VarChar(1000)
+  opportunityId   String?
+  opportunity     JobOpportunity?       @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  preparationId   String?
+  preparation     ApplicationPreparation? @relation(fields: [preparationId], references: [id], onDelete: SetNull)
+  emailDraftId    String?
+  emailDraft      RecruiterEmailDraft?   @relation(fields: [emailDraftId], references: [id], onDelete: SetNull)
+  createdAt       DateTime              @default(now())
+
+  @@index([status, approvedAt])
+  @@map("approved_actions")
+}
+
+model DiscoverySchedulerLock {
+  id         String   @id @default("job-discovery") @db.VarChar(40)
+  holder     String   @db.VarChar(100)
+  lockedUntil DateTime
+  updatedAt  DateTime @updatedAt
+
+  @@map("discovery_scheduler_locks")
 }

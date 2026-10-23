@@ -214,6 +214,9 @@ test("Arbeitnow normalization converts feed fields and safely strips HTML", () =
   assert.equal(normalized.remote, true);
   assert.equal(normalized.publishedAt, "2026-10-19T12:00:00.000Z");
   assert.equal(normalizeArbeitnowJob({}), null);
+  const withoutStableId = normalizeArbeitnowJob({ title: "Engineer", company_name: "Example", url: "https://jobs.example/role?utm_source=feed" });
+  assert.ok(withoutStableId?.sourceId);
+  assert.equal(normalizeArbeitnowJob({ title: "Engineer", company_name: "Example", url: "https://jobs.example/role#x" })?.sourceId, withoutStableId.sourceId);
 });
 
 test("GET /api/jobs validates filters and caps source pagination", async () => {
@@ -268,7 +271,7 @@ test("job source failures return a clear retryable upstream error", async () => 
 test("POST /api/saved-jobs reports duplicate saves without duplicating records", async () => {
   let writes = 0;
   const persisted = new Map<string, SavedJob>();
-  const app = createApp(makeRepository({ saveJob: async data => {
+  const app = createApp(makeRepository({ listSavedJobs: async () => [...persisted.values()], saveJob: async data => {
     const key = `${data.source}:${data.sourceId}`;
     const existing = persisted.get(key);
     if (existing) return { job: existing, duplicate: true };
@@ -284,6 +287,27 @@ test("POST /api/saved-jobs reports duplicate saves without duplicating records",
   assert.equal(second.body.duplicate, true);
   assert.equal(writes, 1);
   assert.equal(persisted.size, 1);
+  const listed = await request(app).get("/api/saved-jobs");
+  assert.equal(listed.status, 200);
+  assert.equal(listed.body.length, 1);
+  assert.equal(listed.body[0].url, job.url);
+});
+
+test("repeating Add to Tracker creates one application and then returns the existing one", async () => {
+  let tracked = false;
+  let createCalls = 0;
+  const app = createApp(makeRepository({ moveSavedJobToApplication: async () => {
+    if (tracked) return { application: record, alreadyTracked: true };
+    tracked = true;
+    createCalls++;
+    return { application: record, alreadyTracked: false };
+  } }));
+  const first = await request(app).post("/api/saved-jobs/saved_1/move-to-application");
+  const second = await request(app).post("/api/saved-jobs/saved_1/move-to-application");
+  assert.equal(first.body.alreadyTracked, false);
+  assert.equal(second.body.alreadyTracked, true);
+  assert.equal(first.body.application.id, second.body.application.id);
+  assert.equal(createCalls, 1);
 });
 
 test("moving a saved job returns the existing tracker record when one already matches", async () => {
