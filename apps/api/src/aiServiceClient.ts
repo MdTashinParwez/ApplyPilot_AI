@@ -7,6 +7,9 @@ export interface AnalysisProfile {
   skills: string[];
   professionalSummary: string;
   targetJobTitles: string[];
+  technicalDomains?: string[];
+  jobTypes?: string[];
+  languages?: string[];
   preferredCountries: string[];
   preferredLocations: string[];
   workArrangements: Array<"remote" | "hybrid" | "onsite">;
@@ -41,7 +44,15 @@ export interface JobAnalysisResult {
   matchedEvidence: string[];
   missingOrUnverified: string[];
   explanation: string[];
+  eligible?: boolean;
+  rejectionReason?: string | null;
+  rejectionCategory?: string | null;
 }
+
+export type JobAnalyzer = (
+  profile: AnalysisProfile,
+  jobs: import("@applypilot/shared").Job[]
+) => Promise<JobAnalysisResult[]>;
 
 export class AIServiceError extends Error {
   constructor(readonly kind: "timeout" | "unavailable") { super("Job analysis is temporarily unavailable. Please retry shortly."); }
