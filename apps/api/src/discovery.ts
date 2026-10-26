@@ -11,7 +11,7 @@ import type { AssistantRepository } from "./assistantRepository.js";
 import type { JobSource, SourceStatus } from "./jobs/arbeitnow.js";
 import { evaluateJobsLocally } from "./matching/evaluator.js";
 
-const MAX_DISCOVERY_JOBS = 25;
+const MAX_DISCOVERY_JOBS = 100;
 const DISCOVERY_LOCK_LEASE_MS = 10 * 60_000;
 
 function hasProfileDetails(profile: CandidateProfileInput): boolean {
@@ -96,6 +96,10 @@ export function createDiscoveryRunner(
         });
         throw new DiscoveryProfileError();
       }
+
+      // Automatically derive and align search strategy from authoritative candidate profile
+      const strategy = deriveSearchStrategy(profile);
+      profile.searchStrategy = strategy;
 
       const query = jobSearchSchema.parse({ page: 1, pageSize: MAX_DISCOVERY_JOBS });
       const search = await source.search(query);
@@ -248,7 +252,7 @@ export interface SchedulerStatus {
 }
 
 const getConfiguredSources = (): string[] =>
-  (process.env.JOB_SOURCES ?? "arbeitnow,remotive,remote_ok,jobicy")
+  (process.env.JOB_SOURCES ?? "arbeitnow,remotive,remote_ok,jobicy,greenhouse,lever,ashby,search_discovery,career_page")
     .split(",")
     .map(s => s.trim().toLowerCase())
     .filter(Boolean);
