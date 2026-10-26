@@ -2,6 +2,9 @@ import { createHash } from "node:crypto";
 import type { Job, JobSearchInput } from "@applypilot/shared";
 import type { JobAdapter, JobSource, SourceStatus } from "./arbeitnow.js";
 import { createArbeitnowSource, JobSourceError } from "./arbeitnow.js";
+import { createAshbySource } from "./ashby.js";
+import { createSearchDiscoverySource } from "./searchDiscovery.js";
+import { createCareerPageCrawlerSource } from "./careerPageCrawler.js";
 
 type Fetcher = typeof fetch;
 type Raw = Record<string, unknown>;
@@ -12,7 +15,10 @@ const SOURCE_NAMES: Record<string, string> = {
   remote_ok: "Remote OK",
   jobicy: "Jobicy",
   greenhouse: "Greenhouse",
-  lever: "Lever"
+  lever: "Lever",
+  ashby: "Ashby",
+  search_discovery: "Search Discovery",
+  career_page: "Career Page Crawler"
 };
 
 const DEFAULT_AUTONOMOUS_GREENHOUSE_BOARDS = [
@@ -40,7 +46,7 @@ const DEFAULT_AUTONOMOUS_LEVER_SITES = [
 ];
 
 const configuredSources = () => new Set(
-  (process.env.JOB_SOURCES ?? "arbeitnow,remotive,remote_ok,jobicy,greenhouse,lever")
+  (process.env.JOB_SOURCES ?? "arbeitnow,remotive,remote_ok,jobicy,greenhouse,lever,ashby,search_discovery,career_page")
     .split(",")
     .map(value => value.trim().toLowerCase())
     .filter(Boolean)
@@ -84,7 +90,8 @@ export function normalizeExternalJob(
   remoteValue: unknown,
   postedValue?: unknown,
   tagsValue?: unknown,
-  attribution = ""
+  attribution = "",
+  initialJobTypes?: string[]
 ): Job | null {
   const title = clean(titleValue, 200);
   const company = clean(companyValue, 160);
@@ -106,6 +113,21 @@ export function normalizeExternalJob(
   const country = inferCountry(loc);
   const remote = typeof remoteValue === "boolean" ? remoteValue : /remote|worldwide|anywhere/i.test(loc) ? true : null;
 
+  const inferredTypes = new Set<string>(initialJobTypes ?? []);
+  const combinedText = `${title} ${clean(descValue, 1000)} ${tags.join(" ")}`.toLowerCase();
+  if (/\b(intern|internship|co-op|working student|werkstudent|praktikant|trainee)\b/i.test(combinedText)) {
+    inferredTypes.add("internship");
+  }
+  if (/\b(graduate|new grad|fresh graduate)\b/i.test(combinedText)) {
+    inferredTypes.add("graduate");
+  }
+  if (/\b(junior|associate|entry level)\b/i.test(combinedText)) {
+    inferredTypes.add("entry_level");
+  }
+  if (/\b(senior|lead|principal|staff|director|head of)\b/i.test(combinedText)) {
+    inferredTypes.add("senior");
+  }
+
   return {
     sourceId,
     source,
@@ -120,7 +142,7 @@ export function normalizeExternalJob(
     remote,
     publishedAt: Number.isFinite(posted) ? new Date(posted).toISOString() : null,
     tags,
-    jobTypes: []
+    jobTypes: Array.from(inferredTypes).slice(0, 20)
   };
 }
 
@@ -266,6 +288,15 @@ export function createPublicJobAdapters(fetcher: Fetcher = fetch): JobAdapter[] 
     const jobs = results.flatMap(r => r.status === "fulfilled" ? r.value : []);
     return jobs.slice(0, 200);
   }));
+
+  // Ashby Autonomous Adapter
+  adapters.push(createAshbySource(fetcher));
+
+  // Search Discovery Autonomous Adapter (Open-Web Search)
+  adapters.push(createSearchDiscoverySource(fetcher));
+
+  // Career Page Crawler Autonomous Adapter (Permitted Company Career Pages)
+  adapters.push(createCareerPageCrawlerSource(fetcher));
 
   return adapters;
 }
